@@ -51,6 +51,13 @@ class _SessionFormState extends State<SessionForm> {
 
   final TextEditingController _axleLengthController = TextEditingController();
 
+  final TextEditingController _frontSprocketController = TextEditingController();
+  final TextEditingController _rearSprocketController = TextEditingController();
+
+  num _rating = 3;
+  double _balanceValue = 0; //-1.0 to 1.0
+
+  final TextEditingController _notesController = TextEditingController();
   final String jsonKeyword = "my_notebook";
   /*final*/ List<SessionRecord> _notebook = []; // Our in-memory database
   @override
@@ -58,6 +65,8 @@ class _SessionFormState extends State<SessionForm> {
     _indexController.dispose(); // Manual memory management for controllers
     _alignmentController.dispose();
     _axleLengthController.dispose();
+    _frontSprocketController.dispose();
+    _rearSprocketController.dispose();
     _coldPressures.dispose();
     _hotPressures.dispose();
     _leftPill.dispose();
@@ -84,10 +93,14 @@ class _SessionFormState extends State<SessionForm> {
             _buildSessionSection(),
             const SizedBox(height: 20), // Spacing (like a spacer widget)
             _buildTyreSection(),
-            const SizedBox(height: 20), // Spacing (like a spacer widget)
+            const SizedBox(height: 20), 
             _buildFrontGeometrySection(),
             const SizedBox(height: 20),
             _buildRearGeometrySection(),
+            const SizedBox(height: 20),
+            _buildGearingSection(),
+            const SizedBox(height: 20),
+            _buildFeedbackSection(),
             const SizedBox(height: 10),
 
             ElevatedButton.icon(
@@ -315,6 +328,7 @@ Widget _buildPressureGrid(PressureSet set) {
         TextField(
           controller: _alignmentController,
           decoration: const InputDecoration(labelText: 'Toe [mm]'),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [DecimalInputFormatter()],
         ),
 
@@ -392,6 +406,100 @@ Widget _buildPressureGrid(PressureSet set) {
     );
   }
 
+  Widget _buildGearingSection() {
+    return ExpansionTile(
+      title: const Text("Gearing"),
+      childrenPadding: _childrenIndent,
+      children: [
+            TextField(
+              controller: _frontSprocketController,
+              decoration: const InputDecoration(labelText: 'Front sprocket'),
+              inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly, // Only allows 0-9
+              ],
+              onChanged: (_) => setState(() {}),
+            ),
+            TextField(
+              controller: _rearSprocketController,
+              decoration: const InputDecoration(labelText: 'Rear sprocket'),
+              inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly, // Only allows 0-9
+              ],
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 10), 
+            Text("Gear ratio: ${_calculateRatio(_frontSprocketController.text, _rearSprocketController.text)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 10), 
+      ],
+    );
+  }
+
+  String _calculateRatio(String front, String rear) {
+    final int frontInt = int.tryParse(front) ?? 0;
+    final int rearInt = int.tryParse(rear) ?? 0;
+
+    double ratio = (frontInt != 0) ? rearInt / frontInt : 0.0;
+    
+    // Return formatted string, e.g., "+1.5" or "-0.2"
+    return ratio.toStringAsFixed(2);
+  }
+
+  Widget _buildFeedbackSection() {
+    return ExpansionTile(
+      title: const Text("Feedback"),
+      childrenPadding: _childrenIndent,
+      children: [
+            _buildStarRating(),
+            const SizedBox(height: 10),
+            Column(
+            children: [
+              Text("Balance: "),
+              Row(children: [
+              
+                Text("Understeer"),
+                Expanded(child: 
+                  Slider(
+                  value: _balanceValue, // -1.0 to 1.0
+                  min: -1.0,
+                  max: 1.0,
+                  divisions: 10, // Creates discrete steps
+                  onChanged: (val) => setState(() => _balanceValue = val),
+                  )
+                ),
+                Text("Oversteer"),
+              ])
+              ]
+            ),
+            TextFormField(
+              controller: _notesController,
+              maxLines: null, // Makes it expand
+              minLines: 4,    // Keeps it at a decent starting size
+              decoration: const InputDecoration(
+                labelText: 'Session Notes',
+                alignLabelWithHint: true, // Puts the label at the top
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10), 
+          ]
+        );
+  }
+
+  Widget _buildStarRating() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(5, (index) {
+        return IconButton(
+          icon: Icon(
+            index < _rating ? Icons.star : Icons.star_border,
+            color: Colors.amber,
+            size: 32,
+          ),
+          onPressed: () => setState(() => _rating = index + 1),
+        );
+      }),
+    );
+  }
 
 
   void _saveRecord() {

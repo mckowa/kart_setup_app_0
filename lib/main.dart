@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Required for formatters
 import 'package:shared_preferences/shared_preferences.dart'; // The Package
+import 'dart:convert'; // REQUIRED for jsonEncode
 
 import 'session_record.dart'; // Your local import
 
@@ -32,10 +33,10 @@ class SessionForm extends StatefulWidget {
 class _SessionFormState extends State<SessionForm> {
   // Variables (State) - Similar to private members in a C++ class
   final TextEditingController _indexController = TextEditingController();
-  final List<String> _options = ['Practice', 'Qualifying', 'Heat'];
-  String? _selectedType; // Nullable type (like std::optional)
-  String? _selectedTyreState; 
-  final List<String> _tyreOptions = ['New', 'Scraped', 'Used'];
+
+  SessionType? _selectedType;
+  TyreState? _selectedTyreState; 
+
   static const _childrenIndent = EdgeInsets.only(left: 32.0, right: 16.0);
 
   final PressureSet _coldPressures = PressureSet();
@@ -45,20 +46,18 @@ class _SessionFormState extends State<SessionForm> {
   final GeometryPill _rightPill = GeometryPill();
 
   final TextEditingController _alignmentController = TextEditingController();
-
-  final List<String> _axleOptions = ["Soft - U", "Medium-soft - Q", "Medium - N", "Hard - H", "Hard+ - HD", "Hardest - HH"];
-  String? _selectedAxleOption;
+  AxleStiffness? _selectedAxleOption;
 
   final TextEditingController _axleLengthController = TextEditingController();
 
   final TextEditingController _frontSprocketController = TextEditingController();
   final TextEditingController _rearSprocketController = TextEditingController();
 
-  num _rating = 3;
-  double _balanceValue = 0; //-1.0 to 1.0
+  int? _rating;
+  double? _balanceValue; //-1.0 to 1.0
 
   final TextEditingController _notesController = TextEditingController();
-  final String jsonKeyword = "my_notebook";
+  final String jsonKeyword = "karting_notebook_v0";
   /*final*/ List<SessionRecord> _notebook = []; // Our in-memory database
   @override
   void dispose() {
@@ -122,8 +121,8 @@ class _SessionFormState extends State<SessionForm> {
               itemBuilder: (context, index) {
                 final item = _notebook[index];
                 return ListTile(
-                  leading: Text('#${item.index}'),
-                  title: Text(item.type),
+                  leading: Text('#${item.sessionIndex}'),
+                  title: Text(getSessionTypeLabel(item.sessionType)),
                   subtitle: Text(item.timestamp.toLocal().toString()), // View in local time
                 );
               },
@@ -152,14 +151,14 @@ class _SessionFormState extends State<SessionForm> {
             const SizedBox(height: 20), // Spacing (like a spacer widget)
 
             // Dropdown Menu
-            DropdownButton<String>(
+            DropdownButton<SessionType>(
               value: _selectedType,
               hint: const Text('Select Type'),
               isExpanded: true,
-              items: _options.map((String value) {
-                return DropdownMenuItem<String>(
+              items: SessionType.values.map((SessionType value) {
+                return DropdownMenuItem<SessionType>(
                   value: value,
-                  child: Text(value),
+                  child: Text(getSessionTypeLabel(value)),
                 );
               }).toList(),
               onChanged: (newValue) {
@@ -180,14 +179,14 @@ class _SessionFormState extends State<SessionForm> {
       //leading: const Icon(Icons.tire_repair),
       children: [
             // Dropdown Menu
-            DropdownButton<String>(
+            DropdownButton<TyreState>(
               value: _selectedTyreState,
               hint: const Text('Tyre state'),
               isExpanded: true,
-              items: _tyreOptions.map((String value) {
-                return DropdownMenuItem<String>(
+              items: TyreState.values.map((TyreState value) {
+                return DropdownMenuItem<TyreState>(
                   value: value,
-                  child: Text(value),
+                  child: Text(getTyreConditionLabel(value)),
                 );
               }).toList(),
               onChanged: (newValue) {
@@ -344,7 +343,7 @@ Widget _buildPressureGrid(PressureSet set) {
                     Text(label, style: TextStyle(fontWeight: FontWeight.bold)),
                     // Integer Input Field
             TextField(
-              controller: pill.top,
+              controller: pill._top,
               decoration: const InputDecoration(labelText: 'Top pill [1-12]'),
               inputFormatters: [
               FilteringTextInputFormatter.digitsOnly, // Only allows 0-9
@@ -353,7 +352,7 @@ Widget _buildPressureGrid(PressureSet set) {
             ),
 
             TextField(
-              controller: pill.bottom,
+              controller: pill._bottom,
               decoration: const InputDecoration(labelText: 'Bottom pill [1-12]'),
               inputFormatters: [
               FilteringTextInputFormatter.digitsOnly, // Only allows 0-9
@@ -370,14 +369,14 @@ Widget _buildPressureGrid(PressureSet set) {
       title: const Text("Rear"),
       childrenPadding: _childrenIndent,
       children: [
-            DropdownButton<String>(
+            DropdownButton<AxleStiffness>(
               value: _selectedAxleOption,
               hint: const Text('Axle stiffness'),
               isExpanded: true,
-              items: _axleOptions.map((String value) {
-                return DropdownMenuItem<String>(
+              items: AxleStiffness.values.map((AxleStiffness value) {
+                return DropdownMenuItem<AxleStiffness>(
                   value: value,
-                  child: Text(value),
+                  child: Text(getAxleStiffnessLabel(value)),
                 );
               }).toList(),
               onChanged: (newValue) {
@@ -459,7 +458,7 @@ Widget _buildPressureGrid(PressureSet set) {
                 Text("Understeer"),
                 Expanded(child: 
                   Slider(
-                  value: _balanceValue, // -1.0 to 1.0
+                  value: _balanceValue ?? 0, // -1.0 to 1.0
                   min: -1.0,
                   max: 1.0,
                   divisions: 10, // Creates discrete steps
@@ -491,7 +490,7 @@ Widget _buildPressureGrid(PressureSet set) {
       children: List.generate(5, (index) {
         return IconButton(
           icon: Icon(
-            index < _rating ? Icons.star : Icons.star_border,
+            index < (_rating ?? 0) ? Icons.star : Icons.star_border,
             color: Colors.amber,
             size: 32,
           ),
@@ -515,11 +514,22 @@ Widget _buildPressureGrid(PressureSet set) {
     }
 
     // 2. Create the Record
-    final newRecord = SessionRecord(
-      index: indexValue,
-      type: _selectedType!, // ! tells Dart: "I know this isn't null"
-      timestamp: DateTime.now().toUtc(), // Independent of timezone
-      tyreState: 'new'
+    final newRecord = SessionRecord.fromUI(
+      index: int.tryParse(_indexController.text) ?? -1,
+      type: _selectedType,
+      tyreState: _selectedTyreState,
+      coldUI: _coldPressures,
+      hotUI: _hotPressures,
+      leftPillUI: _leftPill,
+      rightPillUI: _rightPill,
+      axleStiffness: _selectedAxleOption,
+      axleLength: int.tryParse(_axleLengthController.text),
+      sprocketFront: _frontSprocketController,
+      sprocketRear: _rearSprocketController,
+      rating: _rating,
+      balance: _balanceValue,
+      lapTime: "",
+      notes: _notesController.text,
     );
 
     // 3. Update State
@@ -531,25 +541,65 @@ Widget _buildPressureGrid(PressureSet set) {
     });
   }
   
-  Future<void> _saveToDisk() async {
+  Future<void> _saveToDisk() async 
+  {
     final prefs = await SharedPreferences.getInstance();
-    final strings = _notebook.map((item) => item.toJson()).toList();
-    await prefs.setStringList('jsonKeyword', strings);
+
+    // 1. Convert each SessionRecord into a JSON String
+    // item.toJson() -> returns a Map
+    // jsonEncode(...) -> returns a String
+    final List<String> jsonStrings = _notebook.map((item) 
+    {
+      return jsonEncode(item.toJson()); 
+    }).toList();
+    await prefs.setStringList(jsonKeyword, jsonStrings);
   }
 
   Future<void> _loadFromDisk() async {
     final prefs = await SharedPreferences.getInstance();
-  
-    // Get the list of strings we saved yesterday
-    final List<String>? jsonList = prefs.getStringList('jsonKeyword');
+    final List<String>? jsonStrings = prefs.getStringList(jsonKeyword);
 
-    if (jsonList != null) {
-      // This is the critical "Re-entry" point
+    if (jsonStrings != null) {
       setState(() {
-        _notebook = jsonList
-            .map((jsonStr) => SessionRecord.fromJson(jsonStr))
-           .toList();
+        _notebook = jsonStrings.map((str) {
+          final Map<String, dynamic> map = jsonDecode(str);
+          return SessionRecord.fromJson(map);
+        }).toList();
       });
+    }
+  }
+
+  String getTyreConditionLabel(TyreState condition) 
+  {
+    switch (condition) 
+    {
+      case TyreState.newTyre: return 'New';
+      case TyreState.scraped: return 'Scraped';
+      case TyreState.used: return 'Used';
+    }
+  }
+
+  String getSessionTypeLabel(SessionType? type) 
+  {
+    switch (type) 
+    {
+      case SessionType.practice: return 'Practice';
+      case SessionType.quali: return 'Qualifying';
+      case SessionType.heat: return 'Heat';
+      case null: return "undefined";
+    }
+  }
+
+  String getAxleStiffnessLabel(AxleStiffness axle) 
+  {
+    switch (axle) 
+    {
+      case AxleStiffness.soft: return 'Soft - U';
+      case AxleStiffness.medSoft: return 'Medium-soft - Q';
+      case AxleStiffness.medium: return 'Medium - N';
+      case AxleStiffness.hard: return 'Hard - H';
+      case AxleStiffness.hardPlus: return 'Hard+ - HD';
+      case AxleStiffness.hardest: return 'Hardest - HH';
     }
   }
 }
@@ -562,13 +612,16 @@ class PressureSet {
   final rr = TextEditingController();
 
   // A helper to get all values as doubles at once
-  Map<String, double> getValues() {
-    return {
-      'LF': double.tryParse(lf.text.replaceAll(',', '.')) ?? 0.0,
-      'RF': double.tryParse(rf.text.replaceAll(',', '.')) ?? 0.0,
-      'LR': double.tryParse(lr.text.replaceAll(',', '.')) ?? 0.0,
-      'RR': double.tryParse(rr.text.replaceAll(',', '.')) ?? 0.0,
-    };
+
+  // New: Convert UI state into our Data Object
+  Corners<double> getValues() 
+  {
+    return Corners<double>(
+      lf: double.tryParse(lf.text.replaceAll(',', '.')),
+      rf: double.tryParse(rf.text.replaceAll(',', '.')),
+      lr: double.tryParse(lr.text.replaceAll(',', '.')),
+      rr: double.tryParse(rr.text.replaceAll(',', '.')),
+    );
   }
 
   void dispose() {
@@ -578,18 +631,20 @@ class PressureSet {
 
 class GeometryPill
 {
-  final top = TextEditingController();
-  final bottom = TextEditingController();
+  final _top = TextEditingController();
+  final _bottom = TextEditingController();
 
-    Map<String, int> getValues() {
-    return {
-      'TOP': int.tryParse(top.text) ?? 0,
-      'BOTTOM': int.tryParse(bottom.text) ?? 0,
-    };
+  PillSet getValues()
+  {
+    return PillSet(
+      top: int.tryParse(_top.text),
+      bottom: int.tryParse(_bottom.text),
+    );
   }
 
+
   void dispose() {
-    top.dispose(); bottom.dispose();
+    _top.dispose(); _bottom.dispose();
   }
 }
 

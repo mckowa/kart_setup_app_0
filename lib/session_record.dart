@@ -179,6 +179,7 @@ class SessionRecord {
       required PressureSet hotUI,
       required GeometryPill leftPillUI,
       required GeometryPill rightPillUI,
+      required TextEditingController toeController,
       required AxleStiffness? axleStiffness,
       required int? axleLength,
       required TextEditingController sprocketFront,
@@ -202,6 +203,7 @@ class SessionRecord {
       
       leftPills: leftPillUI.getValues(),
       rightPills: rightPillUI.getValues(),
+      toe: double.tryParse(toeController.text),
       
       axleStiffness: axleStiffness,
       axleLength: axleLength,

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart'; // The Package
 import 'dart:convert'; // REQUIRED for jsonEncode
 
 import 'session_record.dart'; // Your local import
+import 'session_history_card.dart';
 
 // 1. The Entry Point (Like main() in C++)
 void main()
@@ -114,19 +115,18 @@ class _SessionFormState extends State<SessionForm> {
           const Divider(height: 40),
 
 
-            ListView.builder(
-              itemCount: _notebook.length,
+          // Your main list becomes much cleaner:
+          ListView.builder(
               shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemBuilder: (context, index) {
-                final item = _notebook[index];
-                return ListTile(
-                  leading: Text('#${item.sessionIndex}'),
-                  title: Text(getSessionTypeLabel(item.sessionType)),
-                  subtitle: Text(item.timestamp.toLocal().toString()), // View in local time
-                );
-              },
+              physics: const NeverScrollableScrollPhysics(), 
+            itemCount: _notebook.length,
+            itemBuilder: (context, index) => SessionHistoryCard(
+              record: _notebook[index],
+              // onDelete: () => (_deleteSession(index)),
+              onRecall: () => _recallSessionSetup(_notebook[index]),
+              onDelete: () => (),
             ),
+          )
           ],
         ),
       ),
@@ -214,14 +214,14 @@ Widget _buildPressureGrid(PressureSet set) {
     children: [
       Row(
         children: [
-          Expanded(child: _buildPressureField('LF', set.lf)),
-          Expanded(child: _buildPressureField('RF', set.rf)),
+          Expanded(child: _buildPressureField('LF', set._lf)),
+          Expanded(child: _buildPressureField('RF', set._rf)),
         ],
       ),
       Row(
         children: [
-          Expanded(child: _buildPressureField('LR', set.lr)),
-          Expanded(child: _buildPressureField('RR', set.rr)),
+          Expanded(child: _buildPressureField('LR', set._lr)),
+          Expanded(child: _buildPressureField('RR', set._rr)),
         ],
       ),
     ],
@@ -289,10 +289,10 @@ Widget _buildPressureGrid(PressureSet set) {
 
   double _getVal(PressureSet set, String tyre) {
     String text = "";
-    if (tyre == 'LF') text = set.lf.text;
-    if (tyre == 'RF') text = set.rf.text;
-    if (tyre == 'LR') text = set.lr.text;
-    if (tyre == 'RR') text = set.rr.text;
+    if (tyre == 'LF') text = set._lf.text;
+    if (tyre == 'RF') text = set._rf.text;
+    if (tyre == 'LR') text = set._lr.text;
+    if (tyre == 'RR') text = set._rr.text;
     
     return double.tryParse(text.replaceAll(',', '.')) ?? 0.0;
   }
@@ -524,6 +524,7 @@ Widget _buildPressureGrid(PressureSet set) {
       rightPillUI: _rightPill,
       axleStiffness: _selectedAxleOption,
       axleLength: int.tryParse(_axleLengthController.text),
+      toeController: _alignmentController,
       sprocketFront: _frontSprocketController,
       sprocketRear: _rearSprocketController,
       rating: _rating,
@@ -536,8 +537,63 @@ Widget _buildPressureGrid(PressureSet set) {
     setState(() {
       _notebook.add(newRecord);
       // Reset index (Clear the controller)
-      _indexController.clear(); 
-      // Note: We don't reset _selectedType because you asked to keep it as is.
+      _clearUI();
+      
+    });
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //   const SnackBar(content: Text("Session Saved! Fresh page ready.")),
+    // );
+  }
+
+  void _recallSessionSetup(SessionRecord record) {
+    setState(() {
+      // 1. Update Enums/State Variables
+      _selectedType = record.sessionType;
+      _selectedTyreState = record.tyreState;
+      _selectedAxleOption = record.axleStiffness;
+      _rating = record.rating;
+      _balanceValue = record.balance;
+
+      // 2. Update Basic Controllers
+      _indexController.text = record.sessionIndex.toString();
+      _axleLengthController.text = record.axleLength?.toString() ?? "";
+      _frontSprocketController.text = record.gearing.front?.toString() ?? "";
+      _rearSprocketController.text = record.gearing.rear?.toString() ?? "";
+      _notesController.text = record.notes;
+      _alignmentController.text = record.toe?.toString() ?? "";
+      // 3. Update Sub-structure UI Classes
+      _coldPressures.setValues(record.coldPressures);
+      _hotPressures.setValues(record.hotPressures);
+      _leftPill.setValues(record.leftPills);
+      _rightPill.setValues(record.rightPills);
+    });
+  }
+
+  void _clearUI() {
+    setState(() {
+      // 1. Meta - Increment index, don't clear it!
+      int nextIndex = (int.tryParse(_indexController.text) ?? 0) + 1;
+      _indexController.text = nextIndex.toString();
+
+      // 2. Reset Enums/State to defaults
+      _selectedTyreState = null;
+      _selectedAxleOption = null;
+      _rating = null;
+      _balanceValue = 0.5; // Back to center
+
+      // 3. Clear Controllers
+      _axleLengthController.clear();
+      _frontSprocketController.clear();
+      _rearSprocketController.clear();
+      _notesController.clear();
+      _alignmentController.clear();
+      //_lapTimeController.clear();
+
+      // 4. Clear Sub-structures
+      _coldPressures.clear();
+      _hotPressures.clear();
+      _leftPill.clear();
+      _rightPill.clear();
     });
   }
   
@@ -606,10 +662,10 @@ Widget _buildPressureGrid(PressureSet set) {
 
 
 class PressureSet {
-  final lf = TextEditingController();
-  final rf = TextEditingController();
-  final lr = TextEditingController();
-  final rr = TextEditingController();
+  final _lf = TextEditingController();
+  final _rf = TextEditingController();
+  final _lr = TextEditingController();
+  final _rr = TextEditingController();
 
   // A helper to get all values as doubles at once
 
@@ -617,15 +673,31 @@ class PressureSet {
   Corners<double> getValues() 
   {
     return Corners<double>(
-      lf: double.tryParse(lf.text.replaceAll(',', '.')),
-      rf: double.tryParse(rf.text.replaceAll(',', '.')),
-      lr: double.tryParse(lr.text.replaceAll(',', '.')),
-      rr: double.tryParse(rr.text.replaceAll(',', '.')),
+      lf: double.tryParse(_lf.text.replaceAll(',', '.')),
+      rf: double.tryParse(_rf.text.replaceAll(',', '.')),
+      lr: double.tryParse(_lr.text.replaceAll(',', '.')),
+      rr: double.tryParse(_rr.text.replaceAll(',', '.')),
     );
   }
 
+  void setValues(Corners<double> corners)
+  {
+    _lf.text = corners.lf?.toString() ?? "";
+    _rf.text = corners.rf?.toString() ?? "";
+    _lr.text = corners.lr?.toString() ?? "";
+    _rr.text = corners.rr?.toString() ?? "";
+  }
+
+  void clear()
+  {
+    _lf.clear();
+    _rf.clear();
+    _rr.clear();
+    _lr.clear();
+  }
+
   void dispose() {
-    lf.dispose(); rf.dispose(); lr.dispose(); rr.dispose();
+    _lf.dispose(); _rf.dispose(); _lr.dispose(); _rr.dispose();
   }
 }
 
@@ -642,6 +714,17 @@ class GeometryPill
     );
   }
 
+  void setValues(PillSet pillSet)
+  {
+    _top.text = pillSet.top?.toString() ?? "";
+    _bottom.text = pillSet.bottom?.toString() ?? "";
+  }
+
+  void clear()
+  {
+    _top.clear();
+    _bottom.clear();
+  }
 
   void dispose() {
     _top.dispose(); _bottom.dispose();
